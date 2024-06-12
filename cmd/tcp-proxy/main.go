@@ -3,10 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
+	log "github.com/sirupsen/logrus"
+	"io"
 	"net"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	proxy "github.com/jpillora/go-tcp-proxy"
 )
@@ -15,7 +19,7 @@ var (
 	version = "0.0.0-src"
 	matchid = uint64(0)
 	connid  = uint64(0)
-	logger  proxy.ColorLogger
+	//log  proxy.Colorlog
 
 	localAddr   = flag.String("l", ":9999", "local address")
 	remoteAddr  = flag.String("r", "localhost:80", "remote address")
@@ -29,29 +33,59 @@ var (
 	replace     = flag.String("replace", "", "replace regex (in the form 'regex~replacer')")
 )
 
+func init() {
+
+	path := "./log/tcp-proxy.log"
+	/* 日志轮转相关函数
+	`WithLinkName` 为最新的日志建立软连接
+	`WithRotationTime` 设置日志分割的时间，隔多久分割一次
+	WithMaxAge 和 WithRotationCount二者只能设置一个
+	 `WithMaxAge` 设置文件清理前的最长保存时间
+	 `WithRotationCount` 设置文件清理前最多保存的个数
+	*/
+	// 下面配置日志每隔 1 分钟轮转一个新文件，保留最近 3 分钟的日志文件，多余的自动清理掉。
+	writer, _ := rotatelogs.New(
+		path+".%Y%m%d%H%M",
+		rotatelogs.WithLinkName(path),
+		rotatelogs.WithMaxAge(time.Duration(24*3)*time.Hour),
+		rotatelogs.WithRotationTime(time.Duration(24)*time.Hour),
+	)
+
+	if true {
+		writerStd := os.Stdout
+		log.SetOutput(io.MultiWriter(writer, writerStd))
+		log.SetLevel(log.DebugLevel)
+	} else {
+		log.SetOutput(io.MultiWriter(writer))
+		log.SetLevel(log.InfoLevel)
+	}
+
+	//log.SetFormatter(&log.JSONFormatter{})
+}
+
 func main() {
 	flag.Parse()
 
-	logger := proxy.ColorLogger{
-		Verbose: *verbose,
-		Color:   *colors,
-	}
+	//log := proxy.Colorlog{
+	//	Verbose: *verbose,
+	//	Color:   *colors,
+	//}
 
-	logger.Info("go-tcp-proxy (%s) proxing from %v to %v ", version, *localAddr, *remoteAddr)
+	log.Infof("go-tcp-proxy (%s) proxing from %v to %v ", version, *localAddr, *remoteAddr)
 
 	laddr, err := net.ResolveTCPAddr("tcp", *localAddr)
 	if err != nil {
-		logger.Warn("Failed to resolve local address: %s", err)
+		log.Warnf("Failed to resolve local address: %s", err)
 		os.Exit(1)
 	}
 	raddr, err := net.ResolveTCPAddr("tcp", *remoteAddr)
 	if err != nil {
-		logger.Warn("Failed to resolve remote address: %s", err)
+		log.Warnf("Failed to resolve remote address: %s", err)
 		os.Exit(1)
 	}
 	listener, err := net.ListenTCP("tcp", laddr)
 	if err != nil {
-		logger.Warn("Failed to open local port to listen: %s", err)
+		log.Warnf("Failed to open local port to listen: %s", err)
 		os.Exit(1)
 	}
 
@@ -65,14 +99,14 @@ func main() {
 	for {
 		conn, err := listener.AcceptTCP()
 		if err != nil {
-			logger.Warn("Failed to accept connection '%s'", err)
+			log.Warnf("Failed to accept connection '%s'", err)
 			continue
 		}
 		connid++
 
 		var p *proxy.Proxy
 		if *unwrapTLS {
-			logger.Info("Unwrapping TLS")
+			log.Info("Unwrapping TLS")
 			p = proxy.NewTLSUnwrapped(conn, laddr, raddr, *remoteAddr)
 		} else {
 			p = proxy.New(conn, laddr, raddr)
@@ -86,7 +120,7 @@ func main() {
 		p.Log = proxy.ColorLogger{
 			Verbose:     *verbose,
 			VeryVerbose: *veryverbose,
-			Prefix:      fmt.Sprintf("Connection #%03d ", connid),
+			Prefix:      fmt.Sprintf("Connection #%s-%03d ", conn.RemoteAddr().String(), connid),
 			Color:       *colors,
 		}
 
@@ -100,16 +134,16 @@ func createMatcher(match string) func([]byte) {
 	}
 	re, err := regexp.Compile(match)
 	if err != nil {
-		logger.Warn("Invalid match regex: %s", err)
+		log.Warnf("Invalid match regex: %s", err)
 		return nil
 	}
 
-	logger.Info("Matching %s", re.String())
+	log.Info("Matching %s", re.String())
 	return func(input []byte) {
 		ms := re.FindAll(input, -1)
 		for _, m := range ms {
 			matchid++
-			logger.Info("Match #%d: %s", matchid, string(m))
+			log.Info("Match #%d: %s", matchid, string(m))
 		}
 	}
 }
@@ -121,19 +155,19 @@ func createReplacer(replace string) func([]byte) []byte {
 	//split by / (TODO: allow slash escapes)
 	parts := strings.Split(replace, "~")
 	if len(parts) != 2 {
-		logger.Warn("Invalid replace option")
+		log.Warnf("Invalid replace option")
 		return nil
 	}
 
 	re, err := regexp.Compile(string(parts[0]))
 	if err != nil {
-		logger.Warn("Invalid replace regex: %s", err)
+		log.Warnf("Invalid replace regex: %s", err)
 		return nil
 	}
 
 	repl := []byte(parts[1])
 
-	logger.Info("Replacing %s with %s", re.String(), repl)
+	log.Info("Replacing %s with %s", re.String(), repl)
 	return func(input []byte) []byte {
 		return re.ReplaceAll(input, repl)
 	}

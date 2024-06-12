@@ -1,0 +1,13 @@
+
+
+-l="localhost:9999"  -r 192.168.0.135:5001
+
+-l="localhost:9999"  -r 192.168.0.135:5001
+
+192.168.0.125
+
+tcp-proxy.exe -l="0.0.0.0:9999"  -r 192.168.0.110:6001 -vv -h=true -c=true
+
+set CGO_ENABLED=0 GOOS=windows go build -o tcp-proxy cmd/tcp-proxy/main.go
+
+go build -ldflags="-s -w"  -o tcp-proxy.exe -v cmd/tcp-proxy/main.go

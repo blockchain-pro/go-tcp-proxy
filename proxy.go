@@ -108,9 +108,10 @@ func (p *Proxy) pipe(src, dst io.ReadWriter) {
 
 	var dataDirection string
 	if islocal {
-		dataDirection = ">>> %d bytes sent%s"
+
+		dataDirection = p.laddr.String() + ">>> %d bytes sent%s"
 	} else {
-		dataDirection = "<<< %d bytes recieved%s"
+		dataDirection = p.raddr.String() + "<<< %d bytes recieved%s"
 	}
 
 	var byteFormat string
